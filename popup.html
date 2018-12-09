@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" type="text/css" href="popup.css">
+    <script src="popup.js"></script>
+</head>
+<body>
+<div id="wrapper">
+    <div id="title">Twitch chat helper</div>
+    <div class="line tracked-user">
+        <span>Currently tracking:</span>
+        <span class="container">
+            <span>&lt;not selected&gt;</span>
+            <span id="username"></span><a id="stopTracking"></a>
+        </span>
+    </div>
+    <div class="line clearfix">Track new user: <br>
+        <form id="nameForm" name="nameForm"><input id="userInput" type="text" autocomplete="off">
+            <button id="inputButton" role="button"><i>
+                <svg id="inputSVG" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="16px" height="16px" viewBox="0 0 799 798" enable-background="new 0 0 799 798" xml:space="preserve">
+                <path class="arrow" fill="#bf87ff" d="M499.612,783.948L349.339,543.391c-6.534-10.098-5.939-23.759,1.781-33.856l226.303-278.571
+                c6.533-7.722-4.158-18.413-12.474-12.473L288.16,446.574c-9.503,8.314-23.165,8.909-33.262,2.375L14.933,299.27
+                c-20.789-12.474-16.631-43.954,6.534-51.676L762.147,1.096c22.57-7.127,43.954,14.255,36.826,36.826L551.288,777.415
+                C543.566,800.579,512.086,804.737,499.612,783.948z" style="fill: #bf87ff;"></path></svg>
+            </i></button>
+            <div id="suggestionsPopup" class="suggestions" hidden><div></div></div>
+        </form>
+    </div>
+    <div class="line">
+        <input type="checkbox" id="smartMention" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="smartMention"><span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+          <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+        </svg></span><span>Detect user mentions without leading @</span></label>
+    </div>
+    <div class="line">
+        <input type="checkbox" id="notification" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="notification" title="Play sound when tracked user writes new chat message"><span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+          <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+        </svg></span><span>Notify with sound</span></label>
+    </div>
+    <div class="indent">
+        <div class="line">
+            <div class="select-wrapper">
+                <select id="sound" title="Choose notification sound that suits your taste"></select>
+            </div>
+            <a id="playSound"><span></span></a>
+        </div>
+        <div class="line">
+            <input type="range" id="volume" min="0" max="1" step="any"> <label for="volume">&nbsp;Volume</label>
+        </div>
+    </div>
+    <div class="line">
+        <input type="checkbox" id="showFontControls" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="showFontControls"><span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+            <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+        </svg></span><span>Show font size buttons at chat bottom</span></label>
+    </div>
+    <div class="line">
+        <input type="range" id="fontSize" min="13" max="51" step="1"><span class="range-slider__value">13 px</span>
+        <label for="fontSize">&nbsp;Font size</label>
+    </div>
+    <div class="line">
+        Select color scheme:<br>
+        <div class="color-schemes">
+            <div class="color-scheme scheme1" data-scheme="1"><a></a></div>
+            <div class="color-scheme scheme2" data-scheme="2"><a></a></div>
+            <div class="color-scheme scheme3" data-scheme="3"><a></a></div>
+            <div class="color-scheme scheme4" data-scheme="4"><a></a></div>
+        </div>
+    </div>
+
+
+
+    <button class="info-icon-btn">
+        <span>
+            <figure>
+                <svg class="info-svg" width="20px" height="20px" version="1.1" viewBox="0 0 20 20" x="0px" y="0px">
+                <path d="M9 9.951a1 1 0 1 1 2 0v4.098a1 1 0 1 1-2 0V9.951zm1-4.95c.549 0 1 .45 1 1 0 .548-.451 1-1 1-.548 0-1-.45-1-1s.451-1 1-1zm0 13c4.411 0 8-3.59 8-8 0-4.412-3.589-8-8-8s-8 3.588-8 8c0 4.41 3.589 8 8 8z" fill-rule="evenodd"></path>
+            </svg>
+            </figure>
+        </span>
+    </button>
+    <div class="info-text">
+        <span>
+            <p><strong>Left Click on user @mention</strong> start tracking mentioned username</p>
+            <p><strong>Alt + Left Click on chat message</strong> start/stop tracking clicked message's author</p>
+            <p><strong>Alt + S</strong> stop tracking current username</p>
+            <p><strong>Alt + W</strong> toggle focus on chat input field</p>
+            <p><strong>Alt + Q</strong> open extension's settings popup</p>
+            <p><strong>Ctrl + Enter</strong> toggle fullscreen</p>
+        </span>
+    </div>
+</div>
+</body>
+</html>
