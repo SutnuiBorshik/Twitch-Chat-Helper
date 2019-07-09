@@ -33,7 +33,7 @@ chrome.runtime.onMessage.addListener(messageHandler);
 *   - size - new font size (Number)
 * font_size_controls - show or hide font size controls at the bottom of chat
 *   - show - either show or hide buttons (Boolean)
-* update_chat_users - send request to twitch API to update chatUsers
+* update_chat_users - ask background script to request chatters list from twitch API
 * get_suitable_users - return list of up to 5 users which nicknames start with certain symbols
 *   - starts_with - starting symbols
 */
@@ -49,14 +49,7 @@ function messageHandler(request, sender, response) {
             stopTracking();
             break;
         case 'update_coming':
-            // extension about to updated. New content script will be re-inserted. This one should go idle
-            stopTracking(true);
-            disableTracker(true);
-            chrome.runtime.onMessage.removeListener(messageHandler);
-            if (chatToggleObserver) {
-                chatToggleObserver.disconnect();
-                chatToggleObserver = null;
-            }
+            killContentScript();
             break;
         case 'track_new_user':
             trackNewName(request.username);
@@ -82,6 +75,17 @@ function messageHandler(request, sender, response) {
 function resetTracker() {
     disableTracker();
     setTimeout(() => waitForChat(init), 1000);
+}
+
+/** When extension is about to be updated new content script will be re-inserted. This one should go idle */
+function killContentScript() {
+    stopTracking(true);
+    disableTracker(true);
+    chrome.runtime.onMessage.removeListener(messageHandler);
+    if (chatToggleObserver) {
+        chatToggleObserver.disconnect();
+        chatToggleObserver = null;
+    }
 }
 
 /** Reset global vars. Stop msg observer. Remove event listeners. Become completely idle */
@@ -154,7 +158,7 @@ function waitForChat() {
 
 /** Initiates extension's functionality */
 function init() {
-    detectPopout();    
+    detectPopout();
     chatContainer = getChatContainer();
     chrome.storage.local.get(null, values => {
         applyFontSize(values.font_size);
@@ -499,40 +503,18 @@ function clearTrackedMessages() {
     trackedIndex = 0;
 }
 
-/** Checks if 60sec passed since last update. If it did then gets chat users list from twitch API and saves them
- * in chatUsers variable */
+/** Checks if 60sec passed since last update. If it did then sends message to background script to get chat users list
+ * from twitch API and saves them in chatUsers variable */
 function updateChatUsersList() {
     const now = Date.now();
     if (chatUsersLastUpdated !== null && now - chatUsersLastUpdated < 60 * 1000) return;
     chatUsersLastUpdated = now;
-    fetch(`https://tmi.twitch.tv/group/user/${channelName}/chatters`, {
-        method: 'get',
-        headers: new Headers(
-            {
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            }
-        )
+
+    chrome.runtime.sendMessage({message: 'get_chatters', channel: channelName}, response => {
+        if (!response) return;
+        chatUsers = response.chatters;
+        chatUsersLastUpdated = response.updated;
     })
-        .then(response => response.json())
-        .then(json => {
-            const chatters = json.chatters;
-            chatUsers = [];
-            if (!chatters.moderators.includes(channelName) && !chatters.vips.includes(channelName) &&
-                !chatters.global_mods.includes(channelName) && !chatters.admins.includes(channelName) &&
-                !chatters.staff.includes(channelName)) {
-                chatUsers.push(channelName);
-            }
-            chatUsers = chatUsers.concat(
-                chatters.admins,
-                chatters.vips,
-                chatters.global_mods,
-                chatters.moderators,
-                chatters.staff,
-                chatters.viewers
-            );
-            chatUsersLastUpdated = Date.now();
-        }).catch(err => {});
 }
 
 /** Set new color scheme class for chatContainer */

@@ -57,11 +57,16 @@ chrome.runtime.onInstalled.addListener(function(details) {
 
 /** messages:
 *  get_current_tab_id - content script asks for tab id in which it is running
+*  get_chatters - request list of chatters from twitch API
+*       - channel - name of the channel
 */
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     switch(request.message) {
         case 'get_current_tab_id':
             sendResponse({id: String(sender.tab.id)});
+            break;
+        case 'get_chatters':
+            requestChatters(request.channel, sendResponse);
             return true;
     }
 });
@@ -133,3 +138,37 @@ chrome.runtime.onUpdateAvailable.addListener(function(details) {
         chrome.runtime.reload();
     });
 });
+
+function requestChatters(channelName, callbackResponse) {
+    fetch(`https://tmi.twitch.tv/group/user/${channelName}/chatters`, {
+        method: 'get',
+        headers: new Headers(
+            {
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        )
+    })
+        .then(response => response.json())
+        .then(json => {
+            const chatters = json.chatters;
+            let chatUsers = [];
+            if (!chatters.moderators.includes(channelName) && !chatters.vips.includes(channelName) &&
+                !chatters.global_mods.includes(channelName) && !chatters.admins.includes(channelName) &&
+                !chatters.staff.includes(channelName)) {
+                chatUsers.push(channelName);
+            }
+            chatUsers = chatUsers.concat(
+                chatters.admins,
+                chatters.vips,
+                chatters.global_mods,
+                chatters.moderators,
+                chatters.staff,
+                chatters.viewers
+            );
+            callbackResponse({
+                chatters: chatUsers,
+                updated: Date.now()
+            });
+        }).catch(err => {});
+}

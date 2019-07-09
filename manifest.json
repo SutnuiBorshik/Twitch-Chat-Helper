@@ -1,7 +1,7 @@
 {
   "name": "Twitch Chat Helper",
   "short_name": "TCH",
-  "version": "1.1",
+  "version": "1.2",
   "description": "Allows to highlight chat messages of selected user, change chat font size and more.",
   "permissions": [
     "activeTab",
