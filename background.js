@@ -1,20 +1,30 @@
+const DEFAULT_SETTINGS = {
+    color_scheme: '1',
+    volume: 0.45,
+    sound_enabled: false,
+    sound: 'default.mp3',
+    sound_list: ['default.mp3'], // filled with filenames from "sounds: directory later
+    smart_mentions: true, // try to detect user mentions in chat without leading @ sign
+    font_size: null, // null == default
+    font_size_controls: false,
+    hotkeys_enabled: true, //todo not sure if we need to ever disable them
+    popup_info_viewed: false,
+    first_time_launched: true,
+    install_date: new Date().toString(),
+    tabs: {}, // tab_id: {tracked_user: null, ...}
+    /* since version 1.3 */
+    detect_self_mention: false,
+    self_mention_on_active_tab: true,
+    self_mention_sound: 'default.mp3',
+    self_mention_volume: 0.45,
+    self_mention_show_notification: false,
+    self_mention_highlight_tabs: true,
+    highlighted_tabs: [] // ids of highlighted tabs
+};
+
 chrome.runtime.onInstalled.addListener(function(details) {
     if (details.reason === 'install') {
-        chrome.storage.local.set({
-            color_scheme: '1',
-            volume: 0.45,
-            sound_enabled: false,
-            sound: 'default.mp3',
-            sound_list: ['default.mp3'], // filled with filenames from "sounds: directory later
-            smart_mentions: true, // try to detect user mentions in chat without leading @ sign
-            font_size: null, // null == default
-            font_size_controls: false,
-            hotkeys_enabled: true, //todo not sure if we need to ever disable them
-            popup_info_viewed: false,
-            first_time_launched: true,
-            install_date: new Date().toString(),
-            tabs: {} // tab_id: {tracked_user: null, ...}
-        });
+        chrome.storage.local.set(DEFAULT_SETTINGS);
         getSoundsFilenames(names => {
             if (names.length) {
                 chrome.storage.local.set({sound_list: names});
@@ -31,6 +41,16 @@ chrome.runtime.onInstalled.addListener(function(details) {
                     }
                 });
             }
+        });
+        // update chrome.local.storage if DEFAULT_SETTINGS contain new fields
+        chrome.storage.local.get(null, storageSettings => {
+            let newFields = {};
+            Object.keys(DEFAULT_SETTINGS).forEach(key => {
+                if (!(key in storageSettings))
+                    newFields[key] = DEFAULT_SETTINGS[key];
+            });
+            if (Object.keys(newFields).length)
+                chrome.storage.local.set(newFields);
         });
         /* const version = Number(details.previousVersion);
            if (version < 0.5) ... */
@@ -57,6 +77,7 @@ chrome.runtime.onInstalled.addListener(function(details) {
 
 /** messages:
 *  get_current_tab_id - content script asks for tab id in which it is running
+*  user_was_mentioned - user was mentioned. Need to send response to play sound and add tab is to highlighted_tabs if needed
 *  get_chatters - request list of chatters from twitch API
 *       - channel - name of the channel
 */
@@ -64,6 +85,22 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     switch(request.message) {
         case 'get_current_tab_id':
             sendResponse({id: String(sender.tab.id)});
+            break;
+        case 'user_was_mentioned':
+            //sendResponse({id: String(sender.tab.id)});
+            console.log(sender);//sender.tab.<active|id|index>
+            chrome.tabs.get(sender.tab.id, function(tab) {
+                chrome.tabs.highlight({windowId: tab.windowId, tabs: tab.index}, function() {});
+                console.log(tab);
+            });
+            //onActiveChanged - clear tabs list??
+            /*a = setInterval(function(){
+                if (b)
+                    chrome.tabs.highlight({windowId:44 ,tabs: [20,1, 4]});
+                else
+                    chrome.tabs.highlight({windowId:44 ,tabs: [20]});
+                b = !b;
+            }, 1000)*/
             break;
         case 'get_chatters':
             requestChatters(request.channel, sendResponse);

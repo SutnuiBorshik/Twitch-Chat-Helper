@@ -38,6 +38,43 @@ function bindEventListeners() {
         }
     });
 
+    /* Self mention */
+    selfMention.addEventListener('change', function (event) {
+        let indent = selfMentionSound.closest('.indent');
+        chrome.storage.local.set({detect_self_mention: this.checked});
+        if (indent) indent.classList.toggle('disabled');
+    });
+
+    selfMentionOnActiveTab.addEventListener('change', function (event) {
+        chrome.storage.local.set({self_mention_on_active_tab: this.checked});
+    });
+
+    selfMentionShowNotification.addEventListener('change', function (event) {
+        chrome.storage.local.set({self_mention_show_notification: this.checked});
+    });
+
+    selfMentionHighlightTabs.addEventListener('change', function (event) {
+        chrome.storage.local.set({self_mention_highlight_tabs: this.checked});
+    });
+
+    selfMentionSound.addEventListener('change', function (event) {
+        chrome.storage.local.set({self_mention_sound: this.value}, () => playSelfMentionSound());
+    });
+
+    selfMentionVolume.addEventListener('change', function (event) {
+        chrome.storage.local.set({self_mention_volume: Number(this.value).toFixed(3)}, () => playSelfMentionSound(this.value));
+    });
+
+    playMentionSound.addEventListener('click', function (event) {
+        this.classList.add('animated');
+        playSelfMentionSound();
+    });
+    playMentionSound.addEventListener('transitionend', function (event) {
+        if (event.target === this) //we don't want children transitions
+            this.classList.remove('animated');
+    });
+    /* end self mention */
+
     notification.addEventListener('change', function (event) {
         let indent = playSound.closest('.indent');
         chrome.storage.local.set({sound_enabled: this.checked});
@@ -58,13 +95,11 @@ function bindEventListeners() {
     });
 
     sound.addEventListener('change', function (event) {
-        chrome.storage.local.set({sound: this.value});
-        playNotificationSound();
+        chrome.storage.local.set({sound: this.value}, () => playNotificationSound());
     });
 
     volume.addEventListener('change', function (event) {
-        chrome.storage.local.set({volume: Number(this.value).toFixed(3)});
-        playNotificationSound(this.value);
+        chrome.storage.local.set({volume: Number(this.value).toFixed(3)}, () => playNotificationSound(this.value));
     });
 
     fontSize.addEventListener('input', function (event) {
@@ -125,14 +160,20 @@ function fillPopupData() {
                 notification.checked = false;
                 sound.closest('.indent').classList.add('disabled');
             }
-            smartMention.checked = items.smart_mentions;
-
             volume.value = items.volume;
-
+            smartMention.checked = items.smart_mentions;
             fontSize.value = items.font_size ? items.font_size : Number(fontSize.min);
             fontSize.nextElementSibling.textContent = fontSize.value + ' px';
-
             showFontControls.checked = items.font_size_controls;
+
+            if (items.detect_self_mention !== true) {
+                selfMention.checked = false;
+                selfMentionSound.closest('.indent').classList.add('disabled');
+            }
+            selfMentionVolume.value = items.self_mention_volume;
+            selfMentionShowNotification.checked = items.self_mention_show_notification;
+            selfMentionOnActiveTab.checked = items.self_mention_on_active_tab;
+            selfMentionHighlightTabs.checked = items.self_mention_highlight_tabs;
 
             // fill <select> sound options
             let fragment = document.createDocumentFragment();
@@ -145,6 +186,17 @@ function fillPopupData() {
                 fragment.appendChild(option);
             });
             sound.appendChild(fragment);
+
+            // fill <select> self mention sound options
+            items.sound_list.forEach(filename => {
+                let option = document.createElement('option');
+                option.value = filename;
+                if (filename === items.self_mention_sound)
+                    option.selected = true;
+                option.appendChild(document.createTextNode(filename.substring(0, filename.lastIndexOf('.'))));
+                fragment.appendChild(option);
+            });
+            selfMentionSound.appendChild(fragment);
 
             let selectedEl = document.querySelector('.color-scheme.scheme' + items.color_scheme);
             let activeScheme;
@@ -181,12 +233,19 @@ function playNotificationSound(volume) {
 
         let audio = new Audio('sounds/' + items.sound);
         audio.volume = vol;
-        audio.play().catch(err => {
-            if (err instanceof DOMException && err.message === 'Failed to load because no supported source was found.') {
-                // not sure what should we do. Maybe set selected sound to default.mp3
-                console.log('Failed to load ' + audio.src);
-            } else { throw err }
-        });
+        audio.play().catch(err => console.log(err.message));
+    });
+}
+
+function playSelfMentionSound(volume) {
+    chrome.storage.local.get(['detect_self_mention', 'self_mention_sound', 'self_mention_volume'], items => {
+        if (!items['detect_self_mention']) return;
+        let vol = (volume === undefined) ? Number(items.self_mention_volume) : Number(volume);
+        if (vol === 0) return;
+
+        let audio = new Audio('sounds/' + items.self_mention_sound);
+        audio.volume = vol;
+        audio.play().catch(err => console.log(err.message));
     });
 }
 

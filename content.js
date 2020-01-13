@@ -15,6 +15,9 @@ let coef; // trackbar width to chat height ratio
 let observer; //observing chat messages add/remove
 let chatToggleObserver; //observing chat node hide/show
 let updateUsersListInterval;
+let storageSettings = {};
+
+let lastSelfMentionTimestamp;
 
 waitForChat();
 chrome.runtime.onMessage.addListener(messageHandler);
@@ -81,10 +84,15 @@ function resetTracker() {
 function killContentScript() {
     stopTracking(true);
     disableTracker(true);
+    chrome.storage.onChanged.removeListener(storageChangeHandler);
     chrome.runtime.onMessage.removeListener(messageHandler);
     if (chatToggleObserver) {
         chatToggleObserver.disconnect();
         chatToggleObserver = null;
+    }
+    if (observer) {
+        observer.disconnect();
+        observer = null;
     }
 }
 
@@ -119,6 +127,8 @@ function disableTracker(leaveStorageEntry) {
     trackBar = null;
     coef = null;
     observer = null;
+    lastSelfMentionTimestamp = null;
+    storageSettings = {};
 
     if (updateUsersListInterval) {
         clearInterval(updateUsersListInterval);
@@ -134,10 +144,6 @@ function disableTracker(leaveStorageEntry) {
 function stopTracking(leaveStorageEntry) {
     clearTrackedMessages();
     trackedName = null;
-    if (observer) {
-        observer.disconnect();
-    }
-
     hideTrackBar();
     if (!leaveStorageEntry) {
         removeTabInfoFromStorage();
@@ -160,15 +166,28 @@ function waitForChat() {
 function init() {
     detectPopout();
     chatContainer = getChatContainer();
-    chrome.storage.local.get(null, values => {
-        applyFontSize(values.font_size);
-        toggleFontSizeControls(values.font_size_controls);
-        applyColorScheme(values.color_scheme);
+    chrome.storage.local.get(null, settings => {
+        storageSettings = settings;
+        chrome.storage.onChanged.addListener(storageChangeHandler);
+
+        applyFontSize(settings.font_size);
+        toggleFontSizeControls(settings.font_size_controls);
+        applyColorScheme(settings.color_scheme);
         initiateObservers();
+        observer.observe(chat, {childList: true, subtree: true});
         chatToggleObserver.observe(chat.closest('.chat-room').parentNode, {childList: true});
-        if (values.first_time_launched) {
-            firstLaunch();
+        if (settings.first_time_launched) {
+            setColorSchemeOnFirstLaunch();
         }
+
+        // If extension updated and content script re-inserted we will have previously tracked username in storage by tab id.
+        // We should start tracking that user again then.
+        getTabId(id => {
+            if (settings.tabs && id in settings.tabs){
+                trackNewName(settings.tabs[id].tracked_user);
+                updateTrackBar();
+            }
+        });
     });
 
     chat.addEventListener('click', onClick);
@@ -176,53 +195,65 @@ function init() {
     chat.addEventListener('scroll', updateSlider);
     document.addEventListener('keydown', onKeyDown);
 
-    // If extension updated and content script re-inserted we will have previously tracked username in storage by tab id.
-    // We should start tracking that user again then.
-    getTabId(id => {
-        chrome.storage.local.get('tabs', items => {
-            if (id in items.tabs){
-                trackNewName(items.tabs[id].tracked_user);
-                updateTrackBar();
-            }
-        });
-    });
-
     updateChatUsersList();
     updateUsersListInterval = setInterval(updateChatUsersList, 5 * 60 * 1000);
 }
 
 /** Sets callback function for mutation observers */
 function initiateObservers() {
+
+    storageSettings.detect_self_mention = true; //todo REMOVE
+
     // chat messages observer
     observer = new MutationObserver(mutations => {
-        if (trackedName) {
-            for (let mutation of mutations) {
-                if (!mutation.addedNodes.length) continue;
-                let updateNeeded = false;
+        if (!trackedName && !storageSettings.detect_self_mention) return;
 
-                mutation.addedNodes.forEach(node => {
-                    if (node.classList && node.classList.contains('chat-line__message')) {
-                        const el = node.querySelector('.chat-line__username');
-                        if (el && el.textContent.toLowerCase() === trackedName) {
-                            const message = el.closest('.chat-line__message');
-                            message.classList.add('tch-highlighted-message');
-                            trackedMessages.push([message, trackedIndex++]);
+        for (let mutation of mutations) {
+            if (!mutation.addedNodes.length) continue;
+            let updateNeeded = false;
 
-                            chrome.storage.local.get(['sound', 'sound_enabled', 'volume'], items => {
-                                if (!items['sound_enabled']) return;
-                                let audio = new Audio(chrome.runtime.getURL('./sounds/' + items.sound));
-                                audio.volume = items.volume;
-                                // noinspection JSIgnoredPromiseFromCall
-                                audio.play();
-                            });
+            mutation.addedNodes.forEach(node => {
+                if (trackedName && node.classList && node.classList.contains('chat-line__message')) {
+                    const el = node.querySelector('.chat-line__username');
+                    if (el && el.textContent.toLowerCase() === trackedName) {
+                        const message = el.closest('.chat-line__message');
+                        message.classList.add('tch-highlighted-message');
+                        trackedMessages.push([message, trackedIndex++]);
+
+                        if (storageSettings.sound_enabled) {
+                            let audio = new Audio(chrome.runtime.getURL('./sounds/' + storageSettings.sound));
+                            audio.volume = storageSettings.volume;
+                            audio.play().catch(err => {});
                         }
-                        updateNeeded = true;
                     }
-                });
-
-                if (updateNeeded) {
-                    updateTrackBar();
+                    updateNeeded = true;
                 }
+                if (storageSettings.detect_self_mention) {
+                    //todo complete
+                    /*[
+                        'detect_self_mention',
+                        'self_mention_on_active_tab',
+                        'self_mention_sound',
+                        'self_mention_volume',
+                        'self_mention_show_notification',
+                        'highlighted_tabs',
+                    ]*/
+                    let selfMention = node.querySelector('.mention-fragment--recipient');
+                    if (selfMention) {
+                        let audio = new Audio(chrome.runtime.getURL('./sounds/' + storageSettings.sound));
+                        audio.volume = storageSettings.volume;
+                        audio.play().catch(err => {});
+                        console.log('YOU\'VE BEEN MENTIONED!!');
+                        chrome.runtime.sendMessage({message:'user_was_mentioned'}, {},  response => {});
+                        //sendMessage({message: 'user_was_mentioned'});
+                    } else {
+                        console.log('no luck((');
+                    }
+                }
+            });
+
+            if (updateNeeded) {
+                updateTrackBar();
             }
         }
     });
@@ -325,41 +356,40 @@ function onKeyDown(event) {
  *      - Click on random word - if smart mention is on and clicked word is in chatUsers, than track that username
  * If clicked name has already been tracked then cancel tracking. */
 function onClick(event) {
-    chrome.storage.local.get('smart_mentions', values => {
-        const target = event.target;
-        let name;
-        if (event.altKey) {
-            let tempNode;
-            if ((tempNode = target.closest('.chat-line__message')) && (tempNode = tempNode.querySelector('.chat-line__username')))
-                name = tempNode.textContent.toLowerCase();
-        } else if (target.dataset.aTarget === 'chat-message-mention') {
-            name = target.textContent.trim().slice(1).toLowerCase();
-            mentionClickAnimation(target);
-        } else if (values.smart_mentions && (target.className === 'text-fragment' || target.parentNode.className === 'text-fragment')) {
-            let text = '';
-            let s = window.getSelection();
-            if (s.isCollapsed && s.anchorNode.nodeType === Node.TEXT_NODE) {
-                s.modify('move', 'forward', 'character');
-                s.modify('move', 'backward', 'word');
-                s.modify('extend', 'forward', 'word');
-                text = s.toString().trim().toLowerCase();
-                s.modify('move', 'forward', 'character'); //clear selection
-                if (validateUsername(text) && chatUsers.includes(text)) {
-                    name = text;
-                }
-            }
-        } else return;
-
-        if (name) {
-            if (name !== trackedName) {
-                trackNewName(name);
-                updateTrackBar();
-            } else if (event.altKey) {
-                stopTracking();
-                hideTrackBar();
+    const target = event.target;
+    let name;
+    if (event.altKey) {
+        let tempNode;
+        if ((tempNode = target.closest('.chat-line__message')) && (tempNode = tempNode.querySelector('.chat-line__username')))
+            name = tempNode.textContent.toLowerCase();
+    } else if (target.dataset.aTarget === 'chat-message-mention') {
+        name = target.textContent.trim().slice(1).toLowerCase();
+        mentionClickAnimation(target);
+    } else if (storageSettings.smart_mentions && (target.className === 'text-fragment' || target.parentNode.className === 'text-fragment')) {
+        let text = '';
+        let s = window.getSelection();
+        if (s.isCollapsed && s.anchorNode.nodeType === Node.TEXT_NODE) {
+            // select clicked word and assign it's value into variable
+            s.modify('move', 'forward', 'character');
+            s.modify('move', 'backward', 'word');
+            s.modify('extend', 'forward', 'word');
+            text = s.toString().trim().toLowerCase();
+            s.modify('move', 'forward', 'character'); //clear selection
+            if (validateUsername(text) && chatUsers.includes(text)) {
+                name = text;
             }
         }
-    });
+    } else return;
+
+    if (name) {
+        if (name !== trackedName) {
+            trackNewName(name);
+            updateTrackBar();
+        } else if (event.altKey) {
+            stopTracking();
+            hideTrackBar();
+        }
+    }
 }
 
 /** Adds block with animation on top of @mention and adds event listener that removes it on animation end */
@@ -376,8 +406,6 @@ function trackNewName(newName) {
     if (!newName) return;
     if (trackedName) {
         clearTrackedMessages();
-    } else {
-        observer.observe(chat, {childList: true, subtree: true});
     }
     trackedName = newName;
 
@@ -565,11 +593,9 @@ function applyFontSize(size) {
         chat.style['font-size'] = size + 'px';
         chat.style['line-height'] = size > 17 ? (size + 2) + 'px' : null;
     } else {
-        chrome.storage.local.get('font_size', values => {
-            size = values.font_size;
-            chat.style['font-size'] = size + 'px';
-            chat.style['line-height'] = size > 17 ? (size + 2) + 'px' : null;
-        });
+        size = storageSettings.font_size;
+        chat.style['font-size'] = size + 'px';
+        chat.style['line-height'] = size > 17 ? (size + 2) + 'px' : null;
     }
 }
 
@@ -633,7 +659,7 @@ function toggleFontSizeControls(show) {
 }
 
 /** Runs on script first injection. Set's dark color scheme if "dark mode" was enabled on twitch */
-function firstLaunch() {
+function setColorSchemeOnFirstLaunch() {
     if (document.body.classList.contains('tw-root--theme-dark')) {
         chrome.storage.local.set({color_scheme: '4'});
         applyColorScheme(4);
@@ -642,3 +668,13 @@ function firstLaunch() {
 }
 
 //todo add tracking in VODs
+
+/** Maintain local copy of chrome.storage up to date */
+function storageChangeHandler(changes, area) {
+    if (area === 'local') {
+        Object.keys(changes).forEach(key => {
+            storageSettings[key] = changes[key].newValue;
+        });
+    }
+}
+

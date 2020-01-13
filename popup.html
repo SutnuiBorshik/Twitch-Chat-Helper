@@ -43,7 +43,7 @@
             <div class="select-wrapper">
                 <select id="sound" title="Choose notification sound that suits your taste"></select>
             </div>
-            <a id="playSound"><span></span></a>
+            <a class="play-button" id="playSound"><span></span></a>
         </div>
         <div class="line">
             <input type="range" id="volume" min="0" max="1" step="any"> <label for="volume">&nbsp;Volume</label>
@@ -68,6 +68,64 @@
             <div class="color-scheme scheme4" data-scheme="4"><a></a></div>
         </div>
     </div>
+
+
+
+
+<!--    ################## SELF MENTION ####################     -->
+<!--    'detect_self_mention',selfMention
+        'self_mention_on_active_tab',selfMentionOnActiveTab
+        'self_mention_sound',selfMentionSound
+        'self_mention_volume',selfMentionVolume
+        'self_mention_show_notification',selfMentionShowNotification
+        'highlighted_tabs',selfMentionTabHighlight
+-->
+    <div class="line">
+        <input type="checkbox" id="selfMention" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="selfMention" title="Check to be notified when someone mentions you in chat"><span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+          <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+        </svg></span><span>Notify when someone mentions you</span></label>
+    </div>
+
+    <div class="indent">
+        <div class="line">
+            <input type="checkbox" id="selfMentionOnActiveTab" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="selfMentionOnActiveTab" title="Notify you even when mention is in active tab"><span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+          <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+        </svg></span><span>Notify mention in active tab</span></label>
+        </div>
+
+
+        <div class="line">
+            <div class="select-wrapper">
+                <select id="selfMentionSound" title="Choose notification sound that suits your taste"></select>
+            </div>
+            <a class="play-button" id="playMentionSound"><span></span></a>
+        </div>
+        <div class="line">
+            <input type="range" id="selfMentionVolume" min="0" max="1" step="any"> <label for="selfMentionVolume">&nbsp;Volume</label>
+        </div>
+
+        <div class="line">
+            <input type="checkbox" id="selfMentionShowNotification" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="selfMentionShowNotification" title="Show notification that, when clicked, will take you to the tab in which you've been mentioned"><span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+          <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+        </svg></span><span>Show visual notification</span></label>
+        </div>
+
+        <div class="line">
+            <input type="checkbox" id="selfMentionHighlightTabs" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="selfMentionHighlightTabs" title="Tab, in which you've been mentioned, will start blinking"><span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+          <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+        </svg></span><span>Highlight affected tab</span></label>
+        </div>
+
+        <!--todo add small-sized description text-->
+
+    </div>
+
+<!--    ################## SELF MENTION END ####################     -->
+
 
 
 
