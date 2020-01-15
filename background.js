@@ -93,6 +93,34 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
                 chrome.tabs.highlight({windowId: tab.windowId, tabs: tab.index}, function() {});
                 console.log(tab);
             });
+            /* chrome.notifications.create({
+                type: 'basic',
+                title: 'Mention from: twitch.tv/c_a_k_e',
+                message: 'Wesbee: hi there @champ How do you do?',
+                eventTime: Date.now() - 50000,
+                expandedMessage: 'Wesbee: hi there @champ How do you do?\nEy\nman\nwtf',
+                buttons: [
+                    {
+                        title: 'Go to mention',
+                    },
+                    {
+                        title: 'Turn off app notifications',
+                    },
+                ],
+                iconUrl: 'images/icon128.png',
+                //silent: false,
+            }); */
+
+
+            /* chrome.notifications.onClosed.addListener((id, byUser) => {console.log(`Notification closed by user: ${byUser}`)}) */
+
+
+            /* chrome.notifications.onButtonClicked.addListener((id, index) => {console.log(`clicked button index: ${index}`)}) */
+
+
+            /* chrome.notifications.onClicked.addListener(id => {console.log(`clicked ${id}`)}) */
+
+            
             //onActiveChanged - clear tabs list??
             /*a = setInterval(function(){
                 if (b)
