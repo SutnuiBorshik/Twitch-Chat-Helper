@@ -6,7 +6,10 @@ You can add it to chrome by clicking <a href="https://chrome.google.com/webstore
  • highlight and track twitch user's chat messages  
  • change chat font size  
  • see amount of user's messages in chat without scrolling  
- • get notification sound when tracked user posting new message  
+ • get notification sound when tracked user posting new message
+ • get notification when you've been mentioned
+ • auto claim channel points bonus
+ • hide multiple page elements (player extensions overlay, sub trains, community highlights)
 
 Have you ever tried to find chat message that someone responded to? Or to find someone's previous chat messages to follow ongoing conversation? This extension allows you to do it very easily.
 

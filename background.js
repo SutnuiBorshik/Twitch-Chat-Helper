@@ -10,17 +10,60 @@ const DEFAULT_SETTINGS = {
     hotkeys_enabled: true, //todo not sure if we need to ever disable them
     popup_info_viewed: false,
     first_time_launched: true,
-    install_date: new Date().toString(),
+    install_date: Date.now(),
     tabs: {}, // tab_id: {tracked_user: null, ...}
+
     /* since version 1.3 */
     detect_self_mention: false,
-    self_mention_on_active_tab: true,
-    self_mention_sound: 'default.mp3',
+    self_mention_sound: 'appointed.ogg',
     self_mention_volume: 0.45,
+    self_mention_in_active_tab: true,
     self_mention_show_notification: false,
-    self_mention_highlight_tabs: true,
-    highlighted_tabs: [] // ids of highlighted tabs
+
+    centralized_tracked_users_list: true,
+    tracked_users: [],
+
+    active_notifications: {}, // info about notification origin; { notificationId: { windowId:_, tabId:_ }, ... }
+    hide_and_auto_click_points_bonus: true,
+    hide_channel_leaderboard: false,
+    hide_community_highlights: false,
+    hide_extensions_overlay: false,
+    disable_avatar_animation: false,
 };
+
+chrome.notifications.onClosed.addListener((id, byUser) => {
+    chrome.storage.local.get('active_notifications', items => {
+        if (items.active_notifications[id]) {
+            delete items.active_notifications[id];
+            chrome.storage.local.set({ active_notifications: items.active_notifications });
+        }
+    });
+});
+
+chrome.notifications.onButtonClicked.addListener((id, index) => {
+    switch (index) {
+        case 0: // go to tab
+            chrome.storage.local.get('active_notifications', items => {
+                const notificationInfo = items.active_notifications[id];
+                if (notificationInfo) {
+                    chrome.tabs.get(notificationInfo.tabId, tab => {
+                        chrome.tabs.highlight({windowId:notificationInfo.windowId, tabs: [tab.index]}, () => {
+                            chrome.windows.update(notificationInfo.windowId, { focused: true });
+                        });
+                    });
+                }
+                chrome.notifications.clear(id);
+            });
+            break;
+        case 1: // close notification
+            chrome.notifications.clear(id);
+            break;
+    }
+});
+
+chrome.notifications.onClicked.addListener(id => {
+    chrome.notifications.clear(id);
+});
 
 chrome.runtime.onInstalled.addListener(function(details) {
     if (details.reason === 'install') {
@@ -31,17 +74,6 @@ chrome.runtime.onInstalled.addListener(function(details) {
             }
         });
     } else if (details.reason === 'update') {
-        // update available sounds and make sure that selected sound is still on the list
-        getSoundsFilenames(names => {
-            if (names.length) {
-                chrome.storage.local.set({sound_list: names});
-                chrome.storage.local.get('sound', items => {
-                    if (!names.includes(items.sound)) {
-                        chrome.storage.local.set({sound: 'default.mp3'});
-                    }
-                });
-            }
-        });
         // update chrome.local.storage if DEFAULT_SETTINGS contain new fields
         chrome.storage.local.get(null, storageSettings => {
             let newFields = {};
@@ -51,7 +83,27 @@ chrome.runtime.onInstalled.addListener(function(details) {
             });
             if (Object.keys(newFields).length)
                 chrome.storage.local.set(newFields);
+
+            // fix for old versions, when "install_date" was a string generated with: new Date().toString()
+            if (typeof storageSettings.install_date === 'string')
+                chrome.storage.local.set({ install_date: new Date(storageSettings.install_date).getTime() });
         });
+
+        // update available sounds and make sure that selected sound is still on the list
+        getSoundsFilenames(names => {
+            if (names.length) {
+                chrome.storage.local.set({sound_list: names});
+                chrome.storage.local.get(['sound', 'self_mention_sound'], items => {
+                    if (!names.includes(items.sound)) {
+                        chrome.storage.local.set({sound: 'default.mp3'});
+                    }
+                    if (!names.includes(items.self_mention_sound)) {
+                        chrome.storage.local.set({self_mention_sound: 'default.mp3'});
+                    }
+                });
+            }
+        });
+
         /* const version = Number(details.previousVersion);
            if (version < 0.5) ... */
     }
@@ -80,59 +132,65 @@ chrome.runtime.onInstalled.addListener(function(details) {
 *  user_was_mentioned - user was mentioned. Need to send response to play sound and add tab is to highlighted_tabs if needed
 *  get_chatters - request list of chatters from twitch API
 *       - channel - name of the channel
+*  send_to_other_tabs - communication between context scripts. Relay message to all twitch tabs except the source one
+*       - data - object to be relayed
+*  play_sound - play audio file
+*       - sound - file name
+*       - volume - (Number) in range from 0 to 1 representing playback volume
+ *      - dont_play_in_active_tab - (Boolean) flag signifying that sound shouldn't be played if message came from active tab/window
 */
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     switch(request.message) {
         case 'get_current_tab_id':
             sendResponse({id: String(sender.tab.id)});
             break;
-        case 'user_was_mentioned':
-            //sendResponse({id: String(sender.tab.id)});
-            console.log(sender);//sender.tab.<active|id|index>
-            chrome.tabs.get(sender.tab.id, function(tab) {
-                chrome.tabs.highlight({windowId: tab.windowId, tabs: tab.index}, function() {});
-                console.log(tab);
+        case 'show_notification':
+            chrome.windows.get(sender.tab.windowId, window => {
+                if (!sender.tab.active || !window.focused) {
+                    chrome.notifications.create({
+                        type: 'basic',
+                        title: '',
+                        message: request.body,
+                        contextMessage: `twitch.tv/${request.channel}`,
+                        buttons: [
+                            { title: 'Go to mentioned page' },
+                            { title: 'Hide notification' },
+                        ],
+                        iconUrl: 'images/icon128.png',
+                    }, notificationId => {
+                        chrome.storage.local.get('active_notifications', items => {
+                            items.active_notifications[notificationId] = {
+                                windowId: sender.tab.windowId,
+                                tabId: sender.tab.id,
+                            };
+                            chrome.storage.local.set({ active_notifications: items.active_notifications });
+                        });
+                    });
+                }
             });
-            /* chrome.notifications.create({
-                type: 'basic',
-                title: 'Mention from: twitch.tv/c_a_k_e',
-                message: 'Wesbee: hi there @champ How do you do?',
-                eventTime: Date.now() - 50000,
-                expandedMessage: 'Wesbee: hi there @champ How do you do?\nEy\nman\nwtf',
-                buttons: [
-                    {
-                        title: 'Go to mention',
-                    },
-                    {
-                        title: 'Turn off app notifications',
-                    },
-                ],
-                iconUrl: 'images/icon128.png',
-                //silent: false,
-            }); */
-
-
-            /* chrome.notifications.onClosed.addListener((id, byUser) => {console.log(`Notification closed by user: ${byUser}`)}) */
-
-
-            /* chrome.notifications.onButtonClicked.addListener((id, index) => {console.log(`clicked button index: ${index}`)}) */
-
-
-            /* chrome.notifications.onClicked.addListener(id => {console.log(`clicked ${id}`)}) */
-
-            
-            //onActiveChanged - clear tabs list??
-            /*a = setInterval(function(){
-                if (b)
-                    chrome.tabs.highlight({windowId:44 ,tabs: [20,1, 4]});
-                else
-                    chrome.tabs.highlight({windowId:44 ,tabs: [20]});
-                b = !b;
-            }, 1000)*/
             break;
         case 'get_chatters':
             requestChatters(request.channel, sendResponse);
             return true;
+        case 'send_to_other_tabs':
+            chrome.tabs.query({url: 'https://www.twitch.tv/*'}, function(tabs){
+                tabs.forEach(tab => {
+                    if (tab.id !== sender.tab.id)
+                        chrome.tabs.sendMessage(tab.id, { ...request.data });
+                });
+            });
+            break;
+        case 'play_sound':
+            if (request.dont_play_in_active_tab) {
+                chrome.windows.get(sender.tab.windowId, window => {
+                    if (!sender.tab.active || !window.focused) {
+                        playSound(request.sound, request.volume);
+                    }
+                });
+            } else {
+                playSound(request.sound, request.volume);
+            }
+            break;
     }
 });
 
@@ -236,4 +294,10 @@ function requestChatters(channelName, callbackResponse) {
                 updated: Date.now()
             });
         }).catch(err => {});
+}
+
+function playSound(filename, volume) {
+    const audio = new Audio(chrome.runtime.getURL(`./sounds/${filename}`));
+    audio.volume = volume;
+    audio.play().catch(err => {});
 }
