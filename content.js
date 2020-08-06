@@ -7,7 +7,7 @@ let channelName;
 let currentTabId;
 let chatUsers = [];
 let chatUsersLastUpdated;
-let trackedName;
+let trackedUsers = [];
 let trackedMessages = []; // [[msg1, msg_index1, trackbar_marker1], [msg2, msg_index2, trackbar_marker2], ...]
 let trackedIndex = 0;
 let trackBar;
@@ -15,52 +15,69 @@ let coef; // trackbar width to chat height ratio
 let observer; //observing chat messages add/remove
 let chatToggleObserver; //observing chat node hide/show
 let updateUsersListInterval;
+let clickChannelPointsBonusInterval;
+let storageSettings = {};
+
+let lastSelfMentionTimestamp;
 
 waitForChat();
 chrome.runtime.onMessage.addListener(messageHandler);
 
-
 /** Handles incoming messages. Message types:
+* reset - reset tracker without removing storage info
 * url_changed - tab url changed; re-initiate tracker
 *   - url - new tab url
 * color_scheme_changed - user selected new scheme; update tracker styles and highlighted messages styles
 *   - scheme - new color scheme's index
-* stop_tracking - clear highlighted messages; hide trackbar
-* track_new_user - change currently tracking user
-*   - username - new username to track
+* stop_tracking_all - clear highlighted messages; hide trackbar
+*   - stopMessagePropagation - block message emmit to prevent infinite message loop (Boolean)
 * update_coming - stop all content script actions and go idle
+* add_user_to_track_list - add user to tracking list
+*   - username - new username to track
+*   - updateStorage - sign if we need to update tracked list in storage(Boolean)
+* remove_user_from_track_list - remove user from tracking list
+*   - username - username to remove
+*   - updateStorage - sign if we need to update tracked list in storage(Boolean)
 * font_size_change - set new font-size and line-height for chat element
 *   - size - new font size (Number)
 * font_size_controls - show or hide font size controls at the bottom of chat
 *   - show - either show or hide buttons (Boolean)
-* update_chat_users - send request to twitch API to update chatUsers
+* update_chat_users - ask background script to request chatters list from twitch API
 * get_suitable_users - return list of up to 5 users which nicknames start with certain symbols
 *   - starts_with - starting symbols
+* toggle_bonus_auto_claim - add body class to hide channel points bonus box, initiate auto click interval
+*   - enable - (Boolean) enable or disable auto click
+* toggle_channel_leaderboard - toggle body class to show/hide channel leaderboard
+*   - show - (Boolean) state sign
+* toggle_community_highlights - toggle body class to show/hide sub trains, polls, etc.
+*   - show - (Boolean) state sign
+* toggle_extensions_overlay - toggle body class to show/hide extensions overlay that appears on player hover
+*   - show - (Boolean) state sign
+* toggle_avatar_animation- toggle body class to enable/disable avatar animation
+*   - enable - (Boolean) state sign
 */
 function messageHandler(request, sender, response) {
     switch (request.message) {
+        case 'reset':
+            resetTracker(true);
+            break;
         case 'url_changed':
             resetTracker();
             break;
         case 'color_scheme_changed':
             applyColorScheme(request.scheme);
             break;
-        case 'stop_tracking':
-            stopTracking();
+        case 'stop_tracking_all':
+            stopTracking(false, request.stopMessagePropagation);
             break;
         case 'update_coming':
-            // extension about to updated. New content script will be re-inserted. This one should go idle
-            stopTracking(true);
-            disableTracker(true);
-            chrome.runtime.onMessage.removeListener(messageHandler);
-            if (chatToggleObserver) {
-                chatToggleObserver.disconnect();
-                chatToggleObserver = null;
-            }
+            killContentScript();
             break;
-        case 'track_new_user':
-            trackNewName(request.username);
-            updateTrackBar();
+        case 'add_user_to_track_list':
+            addUserToTrackList(request.username, request.updateStorage);
+            break;
+        case 'remove_user_from_track_list':
+            removeUserFromTrackList(request.username, request.updateStorage);
             break;
         case 'font_size_change':
             applyFontSize(request.size);
@@ -75,13 +92,44 @@ function messageHandler(request, sender, response) {
             let names = findSuitableNames(request.starts_with);
             response(names);
             break;
+        case 'toggle_bonus_auto_claim':
+            toggleBonusAutoClaim(request.enable);
+            break;
+        case 'toggle_channel_leaderboard':
+            toggleChannelLeaderboard(request.show);
+            break;
+        case 'toggle_community_highlights':
+            toggleCommunityHighlights(request.show);
+            break;
+        case 'toggle_extensions_overlay':
+            toggleExtensionsOverlay(request.show);
+            break;
+        case 'toggle_avatar_animation':
+            toggleAvatarAnimation(request.enable);
+            break;
     }
 }
 
 /** Completely restart tracker */
-function resetTracker() {
-    disableTracker();
+function resetTracker(leaveStorageEntry = false) {
+    disableTracker(leaveStorageEntry);
     setTimeout(() => waitForChat(init), 1000);
+}
+
+/** When extension is about to be updated new content script will be re-inserted. This one should go idle */
+function killContentScript() {
+    stopTracking(true);
+    disableTracker(true);
+    chrome.storage.onChanged.removeListener(storageChangeHandler);
+    chrome.runtime.onMessage.removeListener(messageHandler);
+    if (chatToggleObserver) {
+        chatToggleObserver.disconnect();
+        chatToggleObserver = null;
+    }
+    if (observer) {
+        observer.disconnect();
+        observer = null;
+    }
 }
 
 /** Reset global vars. Stop msg observer. Remove event listeners. Become completely idle */
@@ -109,16 +157,23 @@ function disableTracker(leaveStorageEntry) {
     channelName = null;
     chatUsers = [];
     chatUsersLastUpdated = null;
-    trackedName = null;
+    trackedUsers = [];
     trackedMessages = [];
     trackedIndex = 0;
     trackBar = null;
     coef = null;
     observer = null;
+    lastSelfMentionTimestamp = null;
+    storageSettings = {};
 
     if (updateUsersListInterval) {
         clearInterval(updateUsersListInterval);
         updateUsersListInterval = null;
+    }
+
+    if (clickChannelPointsBonusInterval) {
+        clearInterval(clickChannelPointsBonusInterval);
+        clickChannelPointsBonusInterval = null;
     }
 
     if (!leaveStorageEntry) {
@@ -126,16 +181,23 @@ function disableTracker(leaveStorageEntry) {
     }
 }
 
-/** Stop tracking current username. If leaveStorageEntry is true then don't remove storage tab entry */
-function stopTracking(leaveStorageEntry) {
+/** Stop tracking all users. If leaveStorageEntry is true then don't remove storage tab entry */
+function stopTracking(leaveStorageEntry = false, stopMessagePropagation = false) {
     clearTrackedMessages();
-    trackedName = null;
-    if (observer) {
-        observer.disconnect();
-    }
-
+    trackedUsers = [];
     hideTrackBar();
-    if (!leaveStorageEntry) {
+    if (storageSettings.centralized_tracked_users_list) {
+        chrome.storage.local.set({ tracked_users: [] });
+        if (!stopMessagePropagation) {
+            chrome.runtime.sendMessage({
+                message: 'send_to_other_tabs',
+                data: {
+                    message: 'stop_tracking_all',
+                    stopMessagePropagation: true
+                }
+            });
+        }
+    } else if (!leaveStorageEntry) {
         removeTabInfoFromStorage();
     }
 }
@@ -145,7 +207,8 @@ function waitForChat() {
     const time0 = Date.now();
     const int = setInterval(() => {
         if (Date.now() - time0 > 10 * 1000) clearInterval(int);
-        if (chat = document.querySelector('.chat-list .simplebar-scroll-content')) {
+        chat = document.querySelector('.chat-list .simplebar-scroll-content');
+        if (chat) {
             clearInterval(int);
             init();
         }
@@ -154,16 +217,43 @@ function waitForChat() {
 
 /** Initiates extension's functionality */
 function init() {
-    detectPopout();    
+    detectPopout();
     chatContainer = getChatContainer();
-    chrome.storage.local.get(null, values => {
-        applyFontSize(values.font_size);
-        toggleFontSizeControls(values.font_size_controls);
-        applyColorScheme(values.color_scheme);
+    chrome.storage.local.get(null, settings => {
+        storageSettings = settings;
+        chrome.storage.onChanged.addListener(storageChangeHandler);
+
+        applyFontSize(settings.font_size);
+        toggleFontSizeControls(settings.font_size_controls);
+        applyColorScheme(settings.color_scheme);
         initiateObservers();
+        observer.observe(chat, {childList: true, subtree: true});
         chatToggleObserver.observe(chat.closest('.chat-room').parentNode, {childList: true});
-        if (values.first_time_launched) {
-            firstLaunch();
+        if (settings.first_time_launched) {
+            setColorSchemeOnFirstLaunch();
+        }
+
+        toggleBonusAutoClaim(settings.hide_and_auto_click_points_bonus);
+        toggleChannelLeaderboard(!settings.hide_channel_leaderboard);
+        toggleCommunityHighlights(!settings.hide_community_highlights);
+        toggleExtensionsOverlay(!settings.hide_extensions_overlay);
+        toggleAvatarAnimation(!settings.disable_avatar_animation);
+
+        if (settings.centralized_tracked_users_list) {
+            if (settings.tracked_users.length) {
+                trackUsers(settings.tracked_users);
+            }
+        } else {
+            // If extension updated and content script re-inserted we will have previously tracked username in storage by tab id.
+            // We should start tracking that user again then.
+            getTabId(id => {
+                if (
+                    settings.tabs && id in settings.tabs && Array.isArray(settings.tabs[id].tracked_users) &&
+                    settings.tabs[id].tracked_users.length
+                ){
+                    trackUsers(settings.tabs[id].tracked_users);
+                }
+            });
         }
     });
 
@@ -171,17 +261,6 @@ function init() {
     chat.addEventListener('dblclick', blockDoubleClick, true);
     chat.addEventListener('scroll', updateSlider);
     document.addEventListener('keydown', onKeyDown);
-
-    // If extension updated and content script re-inserted we will have previously tracked username in storage by tab id.
-    // We should start tracking that user again then.
-    getTabId(id => {
-        chrome.storage.local.get('tabs', items => {
-            if (id in items.tabs){
-                trackNewName(items.tabs[id].tracked_user);
-                updateTrackBar();
-            }
-        });
-    });
 
     updateChatUsersList();
     updateUsersListInterval = setInterval(updateChatUsersList, 5 * 60 * 1000);
@@ -191,34 +270,52 @@ function init() {
 function initiateObservers() {
     // chat messages observer
     observer = new MutationObserver(mutations => {
-        if (trackedName) {
-            for (let mutation of mutations) {
-                if (!mutation.addedNodes.length) continue;
-                let updateNeeded = false;
+        if (!trackedUsers.length && !storageSettings.detect_self_mention) return;
 
-                mutation.addedNodes.forEach(node => {
-                    if (node.classList && node.classList.contains('chat-line__message')) {
-                        const el = node.querySelector('.chat-line__username');
-                        if (el && el.textContent.toLowerCase() === trackedName) {
-                            const message = el.closest('.chat-line__message');
-                            message.classList.add('tch-highlighted-message');
-                            trackedMessages.push([message, trackedIndex++]);
+        for (let mutation of mutations) {
+            if (!mutation.addedNodes.length) continue;
+            let updateNeeded = false;
 
-                            chrome.storage.local.get(['sound', 'sound_enabled', 'volume'], items => {
-                                if (!items['sound_enabled']) return;
-                                let audio = new Audio(chrome.runtime.getURL('./sounds/' + items.sound));
-                                audio.volume = items.volume;
-                                // noinspection JSIgnoredPromiseFromCall
-                                audio.play();
+            mutation.addedNodes.forEach(node => {
+                if (trackedUsers.length && node.classList && node.classList.contains('chat-line__message')) {
+                    const el = node.querySelector('.chat-line__username');
+                    if (el && trackedUsers.includes(el.textContent.toLowerCase())) {
+                        const message = el.closest('.chat-line__message');
+                        message.classList.add('tch-highlighted-message');
+                        trackedMessages.push([message, trackedIndex++]);
+
+                        if (storageSettings.sound_enabled) {
+                            chrome.runtime.sendMessage({
+                                message: 'play_sound',
+                                sound: storageSettings.sound,
+                                volume: storageSettings.volume,
                             });
                         }
-                        updateNeeded = true;
                     }
-                });
-
-                if (updateNeeded) {
-                    updateTrackBar();
+                    updateNeeded = true;
                 }
+                if (storageSettings.detect_self_mention) {
+                    let selfMention = node.querySelector('.mention-fragment--recipient');
+                    if (selfMention) {
+                        chrome.runtime.sendMessage({
+                            message: 'play_sound',
+                            sound: storageSettings.self_mention_sound,
+                            volume: storageSettings.self_mention_volume,
+                            dont_play_in_active_tab: !storageSettings.self_mention_in_active_tab
+                        });
+                        if (storageSettings.self_mention_show_notification) {
+                            chrome.runtime.sendMessage({
+                                message: 'show_notification',
+                                channel: channelName,
+                                body: buildMessageString(node),
+                            });
+                        }
+                    }
+                }
+            });
+
+            if (updateNeeded) {
+                updateTrackBar();
             }
         }
     });
@@ -305,8 +402,8 @@ function onKeyDown(event) {
                 break;
         }
     } else if (event.ctrlKey && event.code === 'Enter') {
-        const fullscreenBtn = document.querySelector('.qa-fullscreen-button');
-        const player = document.querySelector('.player');
+        const fullscreenBtn = document.querySelector('button[data-a-target="player-fullscreen-button"]');
+        const player = document.querySelector('[data-a-target="player-overlay-click-handler"]');
         if (fullscreenBtn && player) {
             fullscreenBtn.dispatchEvent(new Event('click', {bubbles: true, cancelable: true}));
             player.focus(); //focus on player container to be able to pause/resume stream with spacebar
@@ -321,41 +418,38 @@ function onKeyDown(event) {
  *      - Click on random word - if smart mention is on and clicked word is in chatUsers, than track that username
  * If clicked name has already been tracked then cancel tracking. */
 function onClick(event) {
-    chrome.storage.local.get('smart_mentions', values => {
-        const target = event.target;
-        let name;
-        if (event.altKey) {
-            let tempNode;
-            if ((tempNode = target.closest('.chat-line__message')) && (tempNode = tempNode.querySelector('.chat-line__username')))
-                name = tempNode.textContent.toLowerCase();
-        } else if (target.dataset.aTarget === 'chat-message-mention') {
-            name = target.textContent.trim().slice(1).toLowerCase();
-            mentionClickAnimation(target);
-        } else if (values.smart_mentions && (target.className === 'text-fragment' || target.parentNode.className === 'text-fragment')) {
-            let text = '';
-            let s = window.getSelection();
-            if (s.isCollapsed && s.anchorNode.nodeType === Node.TEXT_NODE) {
-                s.modify('move', 'forward', 'character');
-                s.modify('move', 'backward', 'word');
-                s.modify('extend', 'forward', 'word');
-                text = s.toString().trim().toLowerCase();
-                s.modify('move', 'forward', 'character'); //clear selection
-                if (validateUsername(text) && chatUsers.includes(text)) {
-                    name = text;
-                }
-            }
-        } else return;
-
-        if (name) {
-            if (name !== trackedName) {
-                trackNewName(name);
-                updateTrackBar();
-            } else if (event.altKey) {
-                stopTracking();
-                hideTrackBar();
+    const target = event.target;
+    let name;
+    if (event.altKey) {
+        let tempNode;
+        if ((tempNode = target.closest('.chat-line__message')) && (tempNode = tempNode.querySelector('.chat-line__username')))
+            name = tempNode.textContent.trim();
+    } else if (target.dataset.aTarget === 'chat-message-mention') {
+        name = target.textContent.trim().slice(1);
+        mentionClickAnimation(target);
+    } else if (storageSettings.smart_mentions && (target.className === 'text-fragment' || target.parentNode.className === 'text-fragment')) {
+        let text = '';
+        let s = window.getSelection();
+        if (s.isCollapsed && s.anchorNode.nodeType === Node.TEXT_NODE) {
+            // select clicked word and assign it's value into variable
+            s.modify('move', 'forward', 'character');
+            s.modify('move', 'backward', 'word');
+            s.modify('extend', 'forward', 'word');
+            text = s.toString().trim();
+            s.modify('move', 'forward', 'character'); //clear selection
+            if (validateUsername(text) && chatUsers.includes(text)) {
+                name = text;
             }
         }
-    });
+    } else return;
+
+    if (name) {
+        if (!trackedUsers.includes(name.toLowerCase())) {
+            addUserToTrackList(name);
+        } else if (event.altKey) {
+            removeUserFromTrackList(name);
+        }
+    }
 }
 
 /** Adds block with animation on top of @mention and adds event listener that removes it on animation end */
@@ -366,36 +460,120 @@ function mentionClickAnimation(node) {
     node.appendChild(el);
 }
 
-/** Removes highlights from previous user if there was such. Clears trackedMessages. Finds and highlights messages of
- * current user. Saves tab info with currently tracked user in local storage.*/
-function trackNewName(newName) {
-    if (!newName) return;
-    if (trackedName) {
-        clearTrackedMessages();
-    } else {
-        observer.observe(chat, {childList: true, subtree: true});
-    }
-    trackedName = newName;
+/** Adds username to trackedUsers. Highlights his chat messages, adds them to trackedMessages.
+ * Updates tracked users info in storage. Updates trackBar. */
+function addUserToTrackList(newName, updateStorage = true) {
+    const lowerCasedName = newName.toLowerCase();
+    if (trackedUsers.includes(lowerCasedName)) return;
+    trackedUsers.push(lowerCasedName);
 
     chat.querySelectorAll('.chat-line__username').forEach(el => {
-        if (el.textContent.toLowerCase() === newName) {
+        if (el.textContent.toLowerCase() === lowerCasedName) {
             const message = el.closest('.chat-line__message');
             message.classList.add('tch-highlighted-message');
             trackedMessages.push([message, trackedIndex++]);
         }
     });
 
-    getTabId(id => {
-        if (id === null) return;
-        chrome.storage.local.get('tabs', items => {
-            if (id in items.tabs) {
-                items.tabs[id].tracked_user = trackedName;
-            } else {
-                items.tabs[id] = {tracked_user: trackedName};
+    if (updateStorage) {
+        if (storageSettings.centralized_tracked_users_list) {
+            chrome.storage.local.get('tracked_users', items => {
+                items.tracked_users.push(newName);
+                chrome.storage.local.set({ tracked_users: items.tracked_users });
+                chrome.runtime.sendMessage({
+                    message: 'send_to_other_tabs',
+                    data: {
+                        message: 'add_user_to_track_list',
+                        username: newName,
+                        updateStorage: false
+                    }
+                });
+            });
+        } else {
+            getTabId(id => {
+                if (id === null) return;
+                chrome.storage.local.get('tabs', items => {
+                    if (id in items.tabs) {
+                        items.tabs[id].tracked_users.push(newName);
+                    } else {
+                        items.tabs[id] = { tracked_users: [newName] };
+                    }
+                    chrome.storage.local.set({ tabs: items.tabs });
+                });
+            });
+        }
+    }
+
+    updateTrackBar();
+}
+
+/** Removes username from trackedUsers and storage. Removes highlight from his messages. Updates trackBar.
+ * If it was last tracking users - calls stopTracking */
+function removeUserFromTrackList(name, updateStorage = true) {
+    const lowerCasedName = name.toLowerCase();
+    const index = trackedUsers.indexOf(lowerCasedName);
+    if (index < 0) return;
+    trackedUsers.splice(index, 1);
+
+    if (trackedUsers.length) {
+        trackedMessages = trackedMessages.filter(el => {
+            const msgNode = el[0];
+            if (msgNode.querySelector('.chat-line__username').textContent.toLowerCase() === lowerCasedName) {
+                msgNode.classList.remove('tch-highlighted-message');
+                if (trackBar)
+                    trackBar.removeChild(el[2]);
+                return false;
             }
-            chrome.storage.local.set({tabs: items.tabs});
+            return true;
         });
+
+        if (updateStorage) {
+            if (storageSettings.centralized_tracked_users_list) {
+                chrome.storage.local.get('tracked_users', items => {
+                    items.tracked_users.splice(index);
+                    chrome.storage.local.set({ tracked_users: items.tracked_users });
+                    chrome.runtime.sendMessage({
+                        message: 'send_to_other_tabs',
+                        data: {
+                            message: 'remove_user_from_track_list',
+                            username: name,
+                            updateStorage: false
+                        }
+                    });
+                });
+            } else {
+                getTabId(id => {
+                    if (id === null) return;
+                    chrome.storage.local.get('tabs', items => {
+                        if (id in items.tabs) {
+                            items.tabs[id].tracked_users.splice(index);
+                        }
+                        chrome.storage.local.set({ tabs: items.tabs });
+                    });
+                });
+            }
+        }
+
+        updateTrackBar();
+    } else {
+        stopTracking();
+    }
+}
+
+/** Track and highlight messages of multiple users. Update trackBar. */
+function trackUsers(list) {
+    clearTrackedMessages();
+    trackedUsers = list.map(name => name.toLowerCase());
+
+    chat.querySelectorAll('.chat-line__username').forEach(el => {
+        if (trackedUsers.includes(el.textContent.toLowerCase())) {
+            const message = el.closest('.chat-line__message');
+            message.classList.add('tch-highlighted-message');
+            trackedMessages.push([message, trackedIndex++]);
+        }
     });
+
+    updateTrackBar();
 }
 
 /** Updates trackbar, slider and all markers on it according to trackedMessages */
@@ -436,7 +614,7 @@ function hideTrackBar() {
 
 /** Updates slider length and position in trackbar */
 function updateSlider() {
-    if (!trackedName || !trackBar) return;
+    if (!trackedUsers.length || !trackBar) return;
     const slider = trackBar.querySelector('.tch-trackbar-slider');
     const sliderWidth = rescale(chat.getBoundingClientRect().height);
     slider.style.width = sliderWidth + 'px';
@@ -480,7 +658,7 @@ function getChatContainer() {
         if (parent)
             parent = parent.firstElementChild;
     } else {
-        parent = document.querySelector('.right-column');
+        parent = document.querySelector('.right-column .stream-chat');
     }
     // try to check for chat on dashboard: https://www.twitch.tv/channel_name/dashboard/live
     if (!parent)
@@ -499,40 +677,18 @@ function clearTrackedMessages() {
     trackedIndex = 0;
 }
 
-/** Checks if 60sec passed since last update. If it did then gets chat users list from twitch API and saves them
- * in chatUsers variable */
+/** Checks if 60sec passed since last update. If it did then sends message to background script to get chat users list
+ * from twitch API and saves them in chatUsers variable */
 function updateChatUsersList() {
     const now = Date.now();
     if (chatUsersLastUpdated !== null && now - chatUsersLastUpdated < 60 * 1000) return;
     chatUsersLastUpdated = now;
-    fetch(`https://tmi.twitch.tv/group/user/${channelName}/chatters`, {
-        method: 'get',
-        headers: new Headers(
-            {
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            }
-        )
+
+    chrome.runtime.sendMessage({message: 'get_chatters', channel: channelName}, response => {
+        if (!response) return;
+        chatUsers = response.chatters;
+        chatUsersLastUpdated = response.updated;
     })
-        .then(response => response.json())
-        .then(json => {
-            const chatters = json.chatters;
-            chatUsers = [];
-            if (!chatters.moderators.includes(channelName) && !chatters.vips.includes(channelName) &&
-                !chatters.global_mods.includes(channelName) && !chatters.admins.includes(channelName) &&
-                !chatters.staff.includes(channelName)) {
-                chatUsers.push(channelName);
-            }
-            chatUsers = chatUsers.concat(
-                chatters.admins,
-                chatters.vips,
-                chatters.global_mods,
-                chatters.moderators,
-                chatters.staff,
-                chatters.viewers
-            );
-            chatUsersLastUpdated = Date.now();
-        }).catch(err => {});
 }
 
 /** Set new color scheme class for chatContainer */
@@ -563,9 +719,10 @@ function removeTabInfoFromStorage() {
     getTabId(id => {
         if (id === null) return;
         chrome.storage.local.get('tabs', items => {
-            if (id in items.tabs)
+            if (id in items.tabs) {
                 delete items.tabs[id];
-            chrome.storage.local.set({tabs: items.tabs});
+                chrome.storage.local.set({tabs: items.tabs});
+            }
         });
     });
 }
@@ -583,11 +740,9 @@ function applyFontSize(size) {
         chat.style['font-size'] = size + 'px';
         chat.style['line-height'] = size > 17 ? (size + 2) + 'px' : null;
     } else {
-        chrome.storage.local.get('font_size', values => {
-            size = values.font_size;
-            chat.style['font-size'] = size + 'px';
-            chat.style['line-height'] = size > 17 ? (size + 2) + 'px' : null;
-        });
+        size = storageSettings.font_size;
+        chat.style['font-size'] = size + 'px';
+        chat.style['line-height'] = size > 17 ? (size + 2) + 'px' : null;
     }
 }
 
@@ -651,12 +806,83 @@ function toggleFontSizeControls(show) {
 }
 
 /** Runs on script first injection. Set's dark color scheme if "dark mode" was enabled on twitch */
-function firstLaunch() {
-    if (document.body.classList.contains('tw-root--theme-dark')) {
-        chrome.storage.local.set({color_scheme: '4'});
+function setColorSchemeOnFirstLaunch() {
+    if (document.body.classList.contains('dark-theme')) {
+        chrome.storage.local.set({ color_scheme: '4' });
         applyColorScheme(4);
     }
-    chrome.storage.local.set({first_time_launched: false});
+    chrome.storage.local.set({ first_time_launched: false });
 }
 
 //todo add tracking in VODs
+
+/** Maintain local copy of chrome.storage up to date */
+function storageChangeHandler(changes, area) {
+    if (area === 'local') {
+        Object.keys(changes).forEach(key => {
+            storageSettings[key] = changes[key].newValue;
+        });
+    }
+}
+
+function toggleBonusAutoClaim(active) {
+    const CLASS_NAME = 'tch-hide-channel-points-box';
+    if (active) {
+        document.body.classList.add(CLASS_NAME);
+        clickChannelPointsBonusInterval = setInterval(clickPointsClaimBox, 5 * 1000);
+    } else {
+        document.body.classList.remove(CLASS_NAME);
+        if (clickChannelPointsBonusInterval !== null) {
+            clearInterval(clickChannelPointsBonusInterval);
+            clickChannelPointsBonusInterval = null;
+        }
+    }
+}
+
+function toggleChannelLeaderboard(show) {
+    toggleBodyClass(show, 'tch-hide-channel-leaderboard');
+}
+
+function toggleCommunityHighlights(show) {
+    toggleBodyClass(show, 'tch-hide-community-highlights');
+}
+
+function toggleExtensionsOverlay(show) {
+    toggleBodyClass(show, 'tch-hide-extensions-overlay');
+}
+
+function toggleAvatarAnimation(show) {
+    toggleBodyClass(show, 'tch-disable-avatar-animations');
+}
+
+function toggleBodyClass(remove, className) {
+    if (remove) {
+        document.body.classList.remove(className);
+    } else {
+        document.body.classList.add(className);
+    }
+}
+
+function clickPointsClaimBox() {
+    const iconNode = chatContainer.querySelector('.claimable-bonus__icon');
+    if (iconNode) {
+        const claimButton = iconNode.closest('button');
+        if (claimButton) claimButton.click();
+    }
+}
+
+function buildMessageString(node) {
+    let result = '';
+    Array.from(node.children).forEach(childNode => {
+        if (childNode.classList.contains('chat-line__message--emote-button')) {
+            const img = childNode.querySelector('.chat-line__message--emote');
+            if (img && img.alt) {
+                result += img.alt;
+            }
+        } else if (!childNode.classList.contains('chat-line__timestamp')) {
+            result += childNode.textContent;
+        }
+    });
+
+    return result;
+}

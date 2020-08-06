@@ -111,8 +111,37 @@
     background: #d7cceb;
 }
 @keyframes mention-click {
-     100% {
-         transform:translate(-50%, -50%) scale(1.1);
-         opacity: 0;
-     }
- }
+    100% {
+        transform:translate(-50%, -50%) scale(1.1);
+        opacity: 0;
+    }
+}
+
+.tch-hide-channel-points-box .community-points-summary__points-add-text {
+    display: none!important;
+}
+.tch-hide-channel-points-box .community-points-summary > *:not(:first-child) {
+    display: none!important;
+}
+
+.tch-hide-channel-leaderboard .channel-leaderboard {
+    display: none!important;
+}
+
+.tch-hide-community-highlights .community-highlight-stack__card {
+    display: none!important;
+}
+
+.tch-hide-extensions-overlay .video-player__overlay .extensions-dock__layout {
+    display: none!important;
+}
+.tch-hide-extensions-overlay .video-player__overlay > .tw-c-text-overlay {
+    display: none!important;
+}
+
+.tch-disable-avatar-animations .user-avatar-animated--automated .user-avatar-animated__live:after {
+    display: none!important;
+}
+.tch-disable-avatar-animations .user-avatar-animated--automated .user-avatar-animated__halo {
+    animation: none!important;
+}

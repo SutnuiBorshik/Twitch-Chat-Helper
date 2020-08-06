@@ -1,30 +1,65 @@
 'use strict';
 
-document.addEventListener('DOMContentLoaded', function() {
-    updateUsersList();
-    fillPopupData();
+let trackedUsers = [];
 
-    stopTracking.addEventListener('click', function (event) {
-        let parent = this.closest('.tracked-user');
-        if (!parent) return;
-        parent.classList.remove('active');
-        sendMessage({message: 'stop_tracking'});
-    });
+document.addEventListener('DOMContentLoaded', function() {
+    fillPopupData();
+    bindEventListeners();
+    updateUsersList();
+});
+
+function bindEventListeners() {
+    stopTracking.addEventListener('click', clearTrackingUsersList );
+    clearAll.addEventListener('click', clearTrackingUsersList );
 
     document.forms.nameForm.addEventListener('submit', function(event) {
         event.preventDefault();
         let input = this.userInput.value.trim();
         userInput.value = '';
-        if (!input) return;
+        if (!input || trackedUsers.includes(input.toLowerCase())) return;
 
-        userInput.value = '';
         username.innerText = input;
-        let parent = username.closest('.tracked-user');
-        if (!parent) return;
-
+        const parent = username.closest('.tracked-user');
         parent.classList.add('active');
-        sendMessage({message: 'track_new_user', username: input.toLowerCase()});
+
+        trackedUsers.push(input.toLocaleLowerCase());
+
+        trackedUsersCount.textContent = trackedUsers.length;
+        document.querySelector('.tracked-users-list ol').appendChild(generateListElement(input));
+
+        if (trackedUsers.length > 1) {
+            parent.classList.remove('show');
+        }
+
+        sendMessage({message: 'add_user_to_track_list', username: input});
     });
+
+    // remove user from tracking list
+    const userListNode = document.querySelector('.tracked-users-list');
+    userListNode.addEventListener('click', function(event) {
+        const el = event.target;
+        if (!el.classList || !el.classList.contains('stop-tracking-user')) return;
+        const name = el.dataset.username;
+        const index = trackedUsers.indexOf(name.toLocaleLowerCase());
+        if (index === -1) return;
+
+        if (trackedUsers.length === 1) {
+            clearTrackingUsersList();
+        } else {
+            el.closest('li').remove();
+            trackedUsers.splice(index, 1);
+            trackedUsersCount.textContent = trackedUsers.length;
+
+            if (trackedUsers.length === 1) {
+                username.innerText = document.querySelector('.stop-tracking-user').dataset.username;
+                username.closest('.tracked-user').classList.add('active', 'show');
+                document.querySelector('.tracked-users').classList.remove('active');
+            }
+
+            sendMessage({message: 'remove_user_from_track_list', username: name});
+        }
+    });
+
     userInput.addEventListener('input', event => {
         updateUsersList();
         const input = event.target;
@@ -33,6 +68,37 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             hideSuggestions();
         }
+    });
+
+    selfMention.addEventListener('change', function (event) {
+        let indent = selfMentionSound.closest('.indent');
+        chrome.storage.local.set({detect_self_mention: this.checked});
+        if (indent) indent.classList.toggle('disabled');
+    });
+
+    selfMentionInActiveTab.addEventListener('change', function (event) {
+        chrome.storage.local.set({self_mention_in_active_tab: !this.checked});
+    });
+
+    selfMentionShowNotification.addEventListener('change', function (event) {
+        chrome.storage.local.set({self_mention_show_notification: this.checked});
+    });
+
+    selfMentionSound.addEventListener('change', function (event) {
+        chrome.storage.local.set({self_mention_sound: this.value}, () => playSelfMentionSound());
+    });
+
+    selfMentionVolume.addEventListener('change', function (event) {
+        chrome.storage.local.set({self_mention_volume: Number(this.value).toFixed(3)}, () => playSelfMentionSound(this.value));
+    });
+
+    playMentionSound.addEventListener('click', function (event) {
+        this.classList.add('animated');
+        playSelfMentionSound();
+    });
+    playMentionSound.addEventListener('transitionend', function (event) {
+        if (event.target === this) //we don't want children transitions
+            this.classList.remove('animated');
     });
 
     notification.addEventListener('change', function (event) {
@@ -55,18 +121,15 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     sound.addEventListener('change', function (event) {
-        chrome.storage.local.set({sound: this.value});
-        playNotificationSound();
+        chrome.storage.local.set({sound: this.value}, () => playNotificationSound());
     });
 
     volume.addEventListener('change', function (event) {
-        chrome.storage.local.set({volume: Number(this.value).toFixed(3)});
-        playNotificationSound(this.value);
+        chrome.storage.local.set({volume: Number(this.value).toFixed(3)}, () => playNotificationSound(this.value));
     });
 
     fontSize.addEventListener('input', function (event) {
         let newSize = Number(this.value);
-        //console.log('input size: ' + this.value);
         chrome.storage.local.set({font_size: newSize});
         fontSize.nextElementSibling.textContent = newSize + ' px';
         sendMessageToAll({message: 'font_size_change', size: newSize});
@@ -93,15 +156,88 @@ document.addEventListener('DOMContentLoaded', function() {
         chrome.storage.local.set({color_scheme: newSchemeIndex});
         sendMessageToAll({message: 'color_scheme_changed', scheme: newSchemeIndex});
     });
-});
 
-function sendMessage(messageObject, responseFunction = function(){}){
+    centralizedTrackedUsersList.addEventListener('change', function (event) {
+        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+            chrome.storage.local.get(['tracked_users', 'tabs'], items => {
+                if (event.target.checked) { //centralized => separate
+                    chrome.storage.local.set({
+                        centralized_tracked_users_list: false,
+                        tracked_users: [],
+                        tabs: items.tracked_users.length ? { [tabs[0].id]: { tracked_users: items.tracked_users } } : {}
+                    }, () => sendMessageToAll( { message: 'reset' }));
+                } else { //separate => centralized
+                    chrome.storage.local.set({
+                        centralized_tracked_users_list: true,
+                        tracked_users: items.tabs[tabs[0].id] && items.tabs[tabs[0].id].tracked_users ? items.tabs[tabs[0].id].tracked_users : [],
+                        tabs: {}
+                    }, () => sendMessageToAll( { message: 'reset' }));
+                }
+            });
+        });
+    });
+
+    claimChannelPointsBonus.addEventListener('change', function (event) {
+        chrome.storage.local.set({ hide_and_auto_click_points_bonus: this.checked });
+        sendMessageToAll({message: 'toggle_bonus_auto_claim', enable: this.checked});
+    });
+
+    hideChannelLeaderboard.addEventListener('change', function (event) {
+        chrome.storage.local.set({ hide_channel_leaderboard: this.checked });
+        sendMessageToAll({message: 'toggle_channel_leaderboard', show: !this.checked});
+    });
+
+    hideCommunityHighlights.addEventListener('change', function (event) {
+        chrome.storage.local.set({ hide_community_highlights: this.checked });
+        sendMessageToAll({message: 'toggle_community_highlights', show: !this.checked});
+    });
+
+    hideExtensionsOverlay.addEventListener('change', function (event) {
+        chrome.storage.local.set({ hide_extensions_overlay: this.checked });
+        sendMessageToAll({message: 'toggle_extensions_overlay', show: !this.checked});
+    });
+
+    disableAvatarAnimation.addEventListener('change', function (event) {
+        chrome.storage.local.set({ disable_avatar_animation: this.checked });
+        sendMessageToAll({message: 'toggle_avatar_animation', enable: !this.checked});
+    });
+
+    // bind click to show list of tracked users
+    let showTrackedUsersButton = document.querySelector('.tracked-users-button');
+    showTrackedUsersButton.addEventListener('click', function (event) {
+        showTrackedUsersButton.closest('.tracked-users').classList.toggle('active');
+    });
+
+    // bind change active pane on bullet click
+    let bulletsNode = document.querySelector('.bullets');
+    bulletsNode.addEventListener('click', function (event) {
+        const el = event.target;
+        if (el.classList.contains('bullet') && !el.classList.contains('active')) {
+            let activeBulletIndex = null;
+            [...bulletsNode.children].forEach(node => {
+                if (node === el) {
+                    node.classList.add('active');
+                    activeBulletIndex = [...bulletsNode.children].indexOf(node);
+                } else {
+                    node.classList.remove('active');
+                }
+            });
+
+            const panesNode = document.querySelector('.panes');
+            [...panesNode.children].forEach(node => node.classList.remove('active'));
+            const newActivePane = panesNode.children[activeBulletIndex];
+            if (newActivePane) newActivePane.classList.add('active');
+        }
+    });
+}
+
+function sendMessage(messageObject, responseFunction){
     chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
         chrome.tabs.sendMessage(tabs[0].id, messageObject, responseFunction);
     });
 }
 
-function sendMessageToAll(messageObject, responseFunction = function(){}){
+function sendMessageToAll(messageObject, responseFunction){
     chrome.tabs.query({url: 'https://www.twitch.tv/*'}, function(tabs){
         tabs.forEach(tab => {
             chrome.tabs.sendMessage(tab.id, messageObject, responseFunction);
@@ -113,23 +249,61 @@ function fillPopupData() {
     chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
         chrome.storage.local.get(null, items => {
             const tabId = String(tabs[0].id);
-            if (tabId in items.tabs && 'tracked_user' in items.tabs[tabId]) {
-                username.innerText = items.tabs[tabId].tracked_user;
-                username.closest('.tracked-user').classList.add('active');
+            let usernames = [];
+
+            if (items.centralized_tracked_users_list) {
+                usernames = items.tracked_users;
+            } else {
+                if (tabId in items.tabs && 'tracked_users' in items.tabs[tabId]) {
+                    usernames = items.tabs[tabId].tracked_users;
+                }
             }
+
+            trackedUsers = usernames.map(name => name.toLowerCase());
+
+            if (trackedUsers.length) {
+                if (trackedUsers.length === 1) {
+                    username.innerText = usernames[0];
+                    username.closest('.tracked-user').classList.add('active');
+                } else {
+                    username.closest('.tracked-user').classList.remove('show');
+                }
+                trackedUsersCount.textContent = trackedUsers.length;
+                const listNode = document.querySelector('.tracked-users-list ol');
+                if (trackedUsers.length) {
+                    const fragment = document.createDocumentFragment();
+                    usernames.forEach(
+                        name => fragment.appendChild(generateListElement(name))
+                    );
+                    listNode.appendChild(fragment);
+                }
+            }
+
             //userInput.focus();
             if (items.sound_enabled !== true) {
                 notification.checked = false;
                 sound.closest('.indent').classList.add('disabled');
             }
-            smartMention.checked = items.smart_mentions;
-
             volume.value = items.volume;
-
+            smartMention.checked = items.smart_mentions;
             fontSize.value = items.font_size ? items.font_size : Number(fontSize.min);
             fontSize.nextElementSibling.textContent = fontSize.value + ' px';
-
             showFontControls.checked = items.font_size_controls;
+
+            if (items.detect_self_mention !== true) {
+                selfMention.checked = false;
+                selfMentionSound.closest('.indent').classList.add('disabled');
+            }
+            selfMentionVolume.value = items.self_mention_volume;
+            selfMentionShowNotification.checked = items.self_mention_show_notification;
+            selfMentionInActiveTab.checked = !items.self_mention_in_active_tab;
+
+            centralizedTrackedUsersList.checked = !items.centralized_tracked_users_list;
+            claimChannelPointsBonus.checked = items.hide_and_auto_click_points_bonus;
+            hideChannelLeaderboard.checked = items.hide_channel_leaderboard;
+            hideCommunityHighlights.checked = items.hide_community_highlights;
+            hideExtensionsOverlay.checked = items.hide_extensions_overlay;
+            disableAvatarAnimation.checked = items.disable_avatar_animation;
 
             // fill <select> sound options
             let fragment = document.createDocumentFragment();
@@ -142,6 +316,17 @@ function fillPopupData() {
                 fragment.appendChild(option);
             });
             sound.appendChild(fragment);
+
+            // fill <select> self mention sound options
+            items.sound_list.forEach(filename => {
+                let option = document.createElement('option');
+                option.value = filename;
+                if (filename === items.self_mention_sound)
+                    option.selected = true;
+                option.appendChild(document.createTextNode(filename.substring(0, filename.lastIndexOf('.'))));
+                fragment.appendChild(option);
+            });
+            selfMentionSound.appendChild(fragment);
 
             let selectedEl = document.querySelector('.color-scheme.scheme' + items.color_scheme);
             let activeScheme;
@@ -178,12 +363,19 @@ function playNotificationSound(volume) {
 
         let audio = new Audio('sounds/' + items.sound);
         audio.volume = vol;
-        audio.play().catch(err => {
-            if (err instanceof DOMException && err.message === 'Failed to load because no supported source was found.') {
-                // not sure what should we do. Maybe set selected sound to default.mp3
-                console.log('Failed to load ' + audio.src);
-            } else { throw err }
-        });
+        audio.play().catch(err => {});
+    });
+}
+
+function playSelfMentionSound(volume) {
+    chrome.storage.local.get(['detect_self_mention', 'self_mention_sound', 'self_mention_volume'], items => {
+        if (!items['detect_self_mention']) return;
+        let vol = (volume === undefined) ? Number(items.self_mention_volume) : Number(volume);
+        if (vol === 0) return;
+
+        let audio = new Audio('sounds/' + items.self_mention_sound);
+        audio.volume = vol;
+        audio.play().catch(err => {});
     });
 }
 
@@ -246,7 +438,6 @@ function createSuggestionElement(name, selected = false) {
     el.className = 'suggestion' + (selected ? ' selected-suggestion' : '');
     return el;
 }
-
 
 function suggestionKeydownHandler(event) {
     switch (event.code) {
@@ -312,4 +503,32 @@ function suggestionsClickHandler(event) {
         userInput.focus();
     }
     hideSuggestions();
+}
+
+function generateListElement(name) {
+    const liNode = document.createElement('li');
+
+    const spanUsername = document.createElement('span');
+    spanUsername.innerText = name;
+    spanUsername.className = 'username';
+
+    const spanRemove = document.createElement('span');
+    spanRemove.className = 'stop-tracking-user';
+    spanRemove.dataset.username = name;
+
+    liNode.appendChild(spanUsername);
+    liNode.appendChild(spanRemove);
+
+    return liNode;
+}
+
+function clearTrackingUsersList() {
+    const userNode = document.querySelector('.tracked-user');
+    userNode.classList.remove('active');
+    userNode.classList.add('show');
+    trackedUsers = [];
+    const listNode = document.querySelector('.tracked-users-list');
+    listNode.firstElementChild.innerHTML = '';
+    listNode.classList.remove('active');
+    sendMessage({message: 'stop_tracking_all'});
 }

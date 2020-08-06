@@ -7,69 +7,184 @@
 <body>
 <div id="wrapper">
     <div id="title">Twitch chat helper</div>
-    <div class="line tracked-user">
-        <span>Currently tracking:</span>
-        <span class="container">
-            <span>&lt;not selected&gt;</span>
-            <span id="username"></span><a id="stopTracking"></a>
-        </span>
-    </div>
-    <div class="line clearfix">Track new user: <br>
-        <form id="nameForm" name="nameForm"><input id="userInput" type="text" autocomplete="off">
-            <button id="inputButton" role="button"><i>
-                <svg id="inputSVG" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="16px" height="16px" viewBox="0 0 799 798" enable-background="new 0 0 799 798" xml:space="preserve">
+
+    <div class="panes">
+        <div class="pane active">
+
+            <div class="line tracked-user show">
+                <span>Currently tracking:</span>
+                <span class="container">
+                    <span>&lt;not selected&gt;</span>
+                    <span id="username"></span><a id="stopTracking"></a>
+                </span>
+            </div>
+
+            <div class="line tracked-users">
+                <div class="tracked-users-wrapper">
+                    <span>Currently tracking:</span>
+                    <div class="tracked-users-button" title="Click to see the lists of tracked users">
+                        <span id="trackedUsersCount">2</span>users
+                    </div>
+                    <div id="clearAll" title="Clear tracking list">&nbsp;</div>
+                </div>
+                <div class="tracked-users-list">
+                    <ol>
+                        <!--<li>
+                            <span class="username">UserNickname</span>
+                            <span class="stop-tracking-user"></span>
+                        </li>-->
+                    </ol>
+                </div>
+            </div>
+
+            <div class="line clearfix">Track new user: <br>
+                <form id="nameForm" name="nameForm"><input id="userInput" type="text" autocomplete="off">
+                    <button id="inputButton" role="button"><i>
+                        <svg id="inputSVG" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="16px" height="16px" viewBox="0 0 799 798" enable-background="new 0 0 799 798" xml:space="preserve">
                 <path class="arrow" fill="#bf87ff" d="M499.612,783.948L349.339,543.391c-6.534-10.098-5.939-23.759,1.781-33.856l226.303-278.571
                 c6.533-7.722-4.158-18.413-12.474-12.473L288.16,446.574c-9.503,8.314-23.165,8.909-33.262,2.375L14.933,299.27
                 c-20.789-12.474-16.631-43.954,6.534-51.676L762.147,1.096c22.57-7.127,43.954,14.255,36.826,36.826L551.288,777.415
                 C543.566,800.579,512.086,804.737,499.612,783.948z" style="fill: #bf87ff;"></path></svg>
-            </i></button>
-            <div id="suggestionsPopup" class="suggestions" hidden><div></div></div>
-        </form>
-    </div>
-    <div class="line">
-        <input type="checkbox" id="smartMention" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="smartMention"><span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
-          <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
-        </svg></span><span>Detect user mentions without leading @</span></label>
-    </div>
-    <div class="line">
-        <input type="checkbox" id="notification" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="notification" title="Play sound when tracked user writes new chat message"><span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
-          <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
-        </svg></span><span>Notify with sound</span></label>
-    </div>
-    <div class="indent">
-        <div class="line">
-            <div class="select-wrapper">
-                <select id="sound" title="Choose notification sound that suits your taste"></select>
+                    </i></button>
+                    <div id="suggestionsPopup" class="suggestions" hidden><div></div></div>
+                </form>
             </div>
-            <a id="playSound"><span></span></a>
+
+            <div class="line">
+                <input type="checkbox" id="notification" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="notification" title="Play sound when tracked user writes new chat message"><span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+                  <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                </svg></span><span>Notify on new message from tracked user</span></label>
+            </div>
+
+            <div class="indent">
+                <div class="line">
+                    <div class="select-wrapper">
+                        <select id="sound" title="Choose notification sound that suits your taste"></select>
+                    </div>
+                    <a class="play-button" id="playSound"><span></span></a>
+                </div>
+                <div class="line">
+                    <input type="range" id="volume" min="0" max="1" step="any"> <label for="volume">&nbsp;Volume</label>
+                </div>
+            </div>
+
+            <div class="line">
+                <input type="checkbox" id="selfMention" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="selfMention" title="Check to be notified when someone mentions you in chat"><span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+                  <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                </svg></span><span>Notify when someone mentions you</span></label>
+            </div>
+
+            <div class="indent">
+
+                <div class="line">
+                    <div class="select-wrapper">
+                        <select id="selfMentionSound" title="Choose notification sound that suits your taste"></select>
+                    </div>
+                    <a class="play-button" id="playMentionSound"><span></span></a>
+                </div>
+
+                <div class="line">
+                    <input type="range" id="selfMentionVolume" min="0" max="1" step="any"> <label for="selfMentionVolume">&nbsp;Volume</label>
+                </div>
+
+                <div class="line">
+                    <input type="checkbox" id="selfMentionInActiveTab" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="selfMentionInActiveTab" title="Do not play notification sound when you've been mentioned in currently active tab"><span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+                      <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                    </svg></span><span>Don't notify mentions in active tab</span></label>
+                </div>
+
+                <div class="line">
+                    <input type="checkbox" id="selfMentionShowNotification" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="selfMentionShowNotification" title="Show notification that, when clicked, will take you to the tab in which you've been mentioned (doesn't appear for mentions in active tab)"><span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+                      <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                    </svg></span><span>Show visual notification</span></label>
+                </div>
+
+            </div>
         </div>
-        <div class="line">
-            <input type="range" id="volume" min="0" max="1" step="any"> <label for="volume">&nbsp;Volume</label>
-        </div>
-    </div>
-    <div class="line">
-        <input type="checkbox" id="showFontControls" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="showFontControls"><span>
+
+        <div class="pane">
+
+            <div class="line bottom-divider">
+                <input type="checkbox" id="centralizedTrackedUsersList" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="centralizedTrackedUsersList" title="If checked - tracked users list would be separate for every browser tab and will be cleared on tab/browser close"><span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+                  <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                </svg></span><span>Use separate tracking list for each tab</span></label>
+            </div>
+
+            <div class="line">
+                <input type="checkbox" id="smartMention" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="smartMention" title="If checked - every time you click a word in chat message, extension will check if that is a username and will add that username to the tracked list"><span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+                  <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                </svg></span><span>Detect user mentions without leading @</span></label>
+            </div>
+
+            <div class="line">
+                <input type="checkbox" id="showFontControls" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="showFontControls" title="Display physical buttons to change font size at the bottom of the chat"><span>
         <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
             <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
         </svg></span><span>Show font size buttons at chat bottom</span></label>
-    </div>
-    <div class="line">
-        <input type="range" id="fontSize" min="13" max="51" step="1"><span class="range-slider__value">13 px</span>
-        <label for="fontSize">&nbsp;Font size</label>
-    </div>
-    <div class="line">
-        Select color scheme:<br>
-        <div class="color-schemes">
-            <div class="color-scheme scheme1" data-scheme="1"><a></a></div>
-            <div class="color-scheme scheme2" data-scheme="2"><a></a></div>
-            <div class="color-scheme scheme3" data-scheme="3"><a></a></div>
-            <div class="color-scheme scheme4" data-scheme="4"><a></a></div>
+            </div>
+
+            <div class="line">
+                <input type="range" id="fontSize" min="13" max="51" step="1"><span class="range-slider__value">13 px</span>
+                <label for="fontSize">&nbsp;Font size</label>
+            </div>
+
+            <div class="line">
+                <input type="checkbox" id="claimChannelPointsBonus" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="claimChannelPointsBonus" title="Channel points bonus box will be automatically claimed as soon as it will appear. Bonus points animation will be disabled"><span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+                  <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                </svg></span><span>Auto claim channel points bonus</span></label>
+            </div>
+
+            <div class="line">
+                <input type="checkbox" id="hideChannelLeaderboard" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="hideChannelLeaderboard" title="Hide leaderboard containing top gifters and top cheers above chat"><span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+                  <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                </svg></span><span>Hide channel leaderboard</span></label>
+            </div>
+
+            <div class="line">
+                <input type="checkbox" id="hideCommunityHighlights" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="hideCommunityHighlights" title="Hide community highlights toast that appears over chat"><span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+                  <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                </svg></span><span>Hide chat popups: sub trains, polls, etc.</span></label>
+            </div>
+
+            <div class="line">
+                <input type="checkbox" id="hideExtensionsOverlay" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="hideExtensionsOverlay" title="Hide extensions overlay that appears when you hover over the player"><span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+                  <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                </svg></span><span>Hide player extensions overlay</span></label>
+            </div>
+
+            <div class="line">
+                <input type="checkbox" id="disableAvatarAnimation" class="inp-cbx" style="display: none" checked> <label class="cbx-label" for="disableAvatarAnimation" title="Disable annoying animation around streamer's avatar"><span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12px" height="10px" viewbox="0 0 12 10">
+                  <polyline points="1.5 6 4.5 9 10.5 1"></polyline>
+                </svg></span><span>Disable channel avatar animation</span></label>
+            </div>
+
+            <div class="line">
+                Select color scheme:<br>
+                <div class="color-schemes">
+                    <div class="color-scheme scheme1" data-scheme="1"><a></a></div>
+                    <div class="color-scheme scheme2" data-scheme="2"><a></a></div>
+                    <div class="color-scheme scheme3" data-scheme="3"><a></a></div>
+                    <div class="color-scheme scheme4" data-scheme="4"><a></a></div>
+                </div>
+            </div>
         </div>
     </div>
 
-
+    <div class="bullets">
+        <span class="bullet active"></span>
+        <span class="bullet"></span>
+    </div>
 
     <button class="info-icon-btn">
         <span>
@@ -84,7 +199,7 @@
         <span>
             <p><strong>Left Click on user @mention</strong> start tracking mentioned username</p>
             <p><strong>Alt + Left Click on chat message</strong> start/stop tracking clicked message's author</p>
-            <p><strong>Alt + S</strong> stop tracking current username</p>
+            <p><strong>Alt + S</strong> stop tracking all currently tracked users</p>
             <p><strong>Alt + W</strong> toggle focus on chat input field</p>
             <p><strong>Alt + Q</strong> open extension's settings popup</p>
             <p><strong>Ctrl + Enter</strong> toggle fullscreen</p>
