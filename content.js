@@ -207,7 +207,7 @@ function waitForChat() {
     const time0 = Date.now();
     const int = setInterval(() => {
         if (Date.now() - time0 > 10 * 1000) clearInterval(int);
-        chat = document.querySelector('.chat-list .simplebar-scroll-content');
+        chat = document.querySelector('.stream-chat .simplebar-scroll-content');
         if (chat) {
             clearInterval(int);
             init();
@@ -346,7 +346,9 @@ function initiateObservers() {
                 });
                 if (chatNodeRemoved) {
                     // stop tracking
-                    stopTracking(true);
+                    // stopTracking(true);
+                    clearTrackedMessages();
+                    hideTrackBar();
                     disableTracker(true);
                 }
             }
